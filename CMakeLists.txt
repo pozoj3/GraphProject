@@ -17,10 +17,12 @@ FetchContent_MakeAvailable(googletest)
 
 
 add_executable(GraphProject GTest.cpp
-        Graph.hpp
-        GTest.cpp)
+        Graph.hpp)
 
 target_link_libraries(GraphProject gtest_main)
 
 include(GoogleTest)
 gtest_discover_tests(GraphProject)
+
+
+add_executable(ArraysTest arrays.cpp)
