@@ -1,5 +1,6 @@
 # C++ Graph & Cache Performance Benchmark
 
+<<<<<<< HEAD
 This repository consists of two separate components:
 1. GraphProject: A generic undirected graph implementation tested using the Google Test framework.
 2. Cache Benchmark: Python (Jupyter) scripts that automatically generate C++ source code, compile it, and test memory access speeds (Cache hit/miss).
@@ -37,3 +38,6 @@ To run the benchmark, open your terminal and type: jupyter notebook
 Then, open arraydata.ipynb in your browser and run all cells (Run All). The script will generate two distinct plots:
 * A performance comparison between sequential (normal) and random access to array elements.
 * A cache line size analysis measuring the execution time per element for various stride sizes.
+=======
+https://www.vldb.org/pvldb/vol17/p4827-li.pdf
+>>>>>>> 265dcc3e01d960ee5732908a5c86cc0bccdf8f6e
