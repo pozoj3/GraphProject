@@ -6,13 +6,15 @@
 int main(int argc, char* argv[]) {
     if (argc < 2) return 1;
     long long n = std::atoll(argv[1]);
+    int m = std::atoll(argv[2]);
 
     std::vector<int> arr(n, 1);
     volatile long long sum = 0; 
 
-    auto start = std::chrono::high_resolution_clock::now();
-    for (long long i = 0; i < n; ++i) {
-        sum += arr[i];
+    for(int j = 0; j < m; ++j){
+        for (long long i = 0; i < n; ++i) {
+            sum += arr[i];
+        }
     }
     auto end = std::chrono::high_resolution_clock::now();
 
