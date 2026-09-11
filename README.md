@@ -1,43 +1,76 @@
-# C++ Graph & Cache Performance Benchmark
+# High-Performance C++ Graph & Memory Benchmark Suite
 
-<<<<<<< HEAD
-This repository consists of two separate components:
-1. GraphProject: A generic undirected graph implementation tested using the Google Test framework.
-2. Cache Benchmark: Python (Jupyter) scripts that automatically generate C++ source code, compile it, and test memory access speeds (Cache hit/miss).
+A C++ implementation of three distinct graph data structure architectures with an emphasis on hardware-level memory optimization (cache-line alignment), custom block allocation, and throughput.
+
+The project evaluates and benchmarks the following implementations:
+- NaiveGraph: A conventional adjacency list based on std::unordered_map and std::vector.
+- CSRGraph: A static Compressed Sparse Row representation optimized for cache locality and binary search, requiring finalize() before lookups.
+- CBListGraph: A hybrid chunked linked-list architecture utilizing 14-element blocks (EdgeChunk) aligned to 64-byte boundaries (alignas(64), exactly 192 bytes) powered by a custom block allocator (ChunkArena).
+
+Inspired by research on bridging static and dynamic graph systems:
+Paper: Bridging the Gap between Dynamic and Static Graph Processing (VLDB)
+Reference: https://www.vldb.org/pvldb/vol17/p4827-li.pdf
+
 
 ## Prerequisites
 
-To successfully run the entire project, you need to have the following installed:
-* C++ Compiler (supporting the C++23 standard)
-* CMake (v4.1 or newer)
-* Python 3.x
-* Python Packages: jupyter, numpy, matplotlib
+- Modern C++ compiler with C++20 / C++23 support (GCC 13+ or Clang 16+)
+- CMake (version 3.20 or newer)
+- Installed libraries: Google Test (GTest) and Google Benchmark
 
-You can install the required Python packages via pip by running: pip install jupyter numpy matplotlib
 
-## Running the Project
+## Building the Project
 
-1. Compiling and Testing the Graph (C++)
+Navigate to the project root directory and run:
 
-Open a terminal in the root directory of the project and execute the following CMake commands to build it:
-mkdir build
-cd build
-cmake ..
-cmake --build .
+    mkdir -p build
+    cd build
+    cmake -DCMAKE_BUILD_TYPE=Release ..
+    cmake --build . -j$(nproc)
 
-After a successful build, you can run the Google Tests:
-On Linux/macOS: ./GraphProject
-On Windows: GraphProject.exe
+Windows build (PowerShell/CMD):
+    mkdir build
+    cd build
+    cmake -DCMAKE_BUILD_TYPE=Release ..
+    cmake --build . --config Release
 
-2. Cache Benchmark (Jupyter Notebook)
 
-The cache performance measurement is fully managed through a Jupyter Notebook. The notebook automatically generates the required C++ source files (normal.cpp, random.cpp, stride_test.cpp), invokes g++ to compile them with -O3 optimization, and visualizes the benchmark results.
+## Running Tests (Google Test)
 
-To run the benchmark, open your terminal and type: jupyter notebook
+Execute all unit and parameterized integration tests using ctest inside the build directory:
 
-Then, open arraydata.ipynb in your browser and run all cells (Run All). The script will generate two distinct plots:
-* A performance comparison between sequential (normal) and random access to array elements.
-* A cache line size analysis measuring the execution time per element for various stride sizes.
-=======
-https://www.vldb.org/pvldb/vol17/p4827-li.pdf
->>>>>>> 265dcc3e01d960ee5732908a5c86cc0bccdf8f6e
+    ctest --output-on-failure
+
+Or run individual test binaries directly:
+
+    ./test_naive
+    ./test_csr
+    ./test_cblist
+    ./test_all
+
+Run specific tests using GTest filters:
+
+    ./test_all --gtest_filter="*Dijkstra*"
+
+
+## Running Benchmarks (Google Benchmark)
+
+Run the full benchmark suite directly:
+
+    ./bench_main
+
+Filter specific benchmark suites:
+
+    # Benchmark only initial edge insertions:
+    ./bench_main --benchmark_filter="BM_EdgeInsertion"
+
+    # Benchmark Breadth-First Search (BFS):
+    ./bench_main --benchmark_filter=".*BFS.*"
+
+    # Compare performance on complex strings and heavy payload types:
+    ./bench_main --benchmark_filter="BM_LargeComplexVertex|BM_HeavyVertex"
+
+Export benchmark results to JSON:
+
+    ./bench_main --benchmark_out=benchmark_results.json --benchmark_out_format=json
+    

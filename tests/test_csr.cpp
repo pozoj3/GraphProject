@@ -1,41 +1,42 @@
 #include <gtest/gtest.h>
 #include <string>
-#include "graphengine/CBListGraph.hpp"
 
-TEST(CBListGraphTest, BasicAddAndLookup) {
-    CBListGraph<std::string, double> graph(false); // Neusmjeren
-    graph.addEdge("Koprivnica", "Ludbreg", 25.0);
+#include "graphs/CSRGraph.hpp"
 
-    EXPECT_TRUE(graph.hasEdge("Koprivnica", "Ludbreg"));
-    EXPECT_TRUE(graph.hasEdge("Ludbreg", "Koprivnica"));
-    EXPECT_EQ(graph.numVertices(), 2);
-    EXPECT_EQ(graph.numEdges(), 1);
+TEST(CSRGraphTest, RequiresFinalizeBeforeLookup) {
+    CSRGraph<std::string, double> graph(true);
+    graph.reserve(3, 2);
+    graph.addEdge("A", "B", 1.5);
+    graph.addEdge("A", "C", 2.5);
+
+    EXPECT_FALSE(graph.hasEdge("A", "B"));
+
+    graph.finalize();
+
+    EXPECT_TRUE(graph.hasEdge("A", "B"));
+    EXPECT_TRUE(graph.hasEdge("A", "C"));
+    EXPECT_FALSE(graph.hasEdge("B", "A"));
+    EXPECT_EQ(graph.numVertices(), 3);
+    EXPECT_EQ(graph.numEdges(), 2);
 }
 
-TEST(CBListGraphTest, SmallChunkOverflowAndGTChain) {
-    CBListGraph<int, double> graph(true); // Usmjeren
-    // Dodajemo 6 bridova (kapacitet jednog SmallChunka je 4)
-    graph.addEdge(1, 10, 1.0);
-    graph.addEdge(1, 11, 2.0);
-    graph.addEdge(1, 12, 3.0);
-    graph.addEdge(1, 13, 4.0);
-    graph.addEdge(1, 14, 5.0);
-    graph.addEdge(1, 15, 6.0);
+TEST(CSRGraphTest, NeighborIterationAndSinkVertex) {
+    CSRGraph<int, double> graph(true);
+    graph.addEdge(0, 1, 4.0);
+    graph.addEdge(0, 2, 2.0);
+    graph.addEdge(1, 2, 5.0);
+    graph.addEdge(3, 0, 1.5);
+    graph.finalize();
 
-    EXPECT_TRUE(graph.hasEdge(1, 10));
-    EXPECT_TRUE(graph.hasEdge(1, 15));
-    EXPECT_FALSE(graph.hasEdge(1, 99));
-
-    int count = 0;
-    graph.forEachNeighbor(1, [&](int /*v*/, double /*w*/) {
-        count++;
+    size_t neighbors_of_0 = 0;
+    graph.forEachNeighbor(0, [&](int, double) {
+        ++neighbors_of_0;
     });
-    EXPECT_EQ(count, 6);
+    EXPECT_EQ(neighbors_of_0, 2);
 
-    // Globalni prolaz kroz GTChain
-    size_t global_edges = 0;
-    graph.traverseEntireGraph([&](uint32_t /*target*/, double /*weight*/) {
-        global_edges++;
+    size_t neighbors_of_2 = 0;
+    graph.forEachNeighbor(2, [&](int, double) {
+        ++neighbors_of_2;
     });
-    EXPECT_EQ(global_edges, 6);
+    EXPECT_EQ(neighbors_of_2, 0);
 }

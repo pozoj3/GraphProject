@@ -1,16 +1,17 @@
 #ifndef CSR_GRAPH_HPP
 #define CSR_GRAPH_HPP
 
-#include <iostream>
 #include <vector>
 #include <unordered_map>
-#include <concepts>
+#include <unordered_set>
+#include <queue>
+#include <stack>
 #include <span>
 #include <algorithm>
 #include <cstdint>
-
-template <typename T>
-concept Numeric = std::integral<T> || std::floating_point<T>;
+#include <utility>
+#include <limits>
+#include "Concepts.hpp"
 
 template <typename VertexType, Numeric WeightType = double>
 class CSRGraph {
@@ -24,18 +25,18 @@ private:
     std::unordered_map<VertexType, uint32_t> id_map;
     std::vector<VertexType> reverse_id_map;
 
-    // Glavni CSR ravni nizovi (kontinuirana memorija)
-    std::vector<uint64_t> row_offsets;
-    std::vector<uint32_t> col_indices;
-    std::vector<WeightType> weights;
+    std::vector<uint64_t> offsets;
+    std::vector<uint32_t> column_indices;
+    std::vector<WeightType> values;
 
-    std::vector<RawEdge> edge_buffer; // Privremeni buffer za fazu gradnje
+    std::vector<RawEdge> edge_buffer;
     bool is_finalized{false};
     bool is_directed{false};
 
-    uint32_t get_or_create_vertex(const VertexType& u) {
+    uint32_t get_or_register_vertex(const VertexType& u) {
         auto it = id_map.find(u);
         if (it != id_map.end()) return it->second;
+
         uint32_t new_id = static_cast<uint32_t>(reverse_id_map.size());
         id_map[u] = new_id;
         reverse_id_map.push_back(u);
@@ -45,106 +46,232 @@ private:
 public:
     explicit CSRGraph(bool directed = false) : is_directed(directed) {}
 
-    void reserve(size_t num_vertices, size_t num_edges) {
-        id_map.reserve(num_vertices);
-        reverse_id_map.reserve(num_vertices);
-        edge_buffer.reserve(is_directed ? num_edges : num_edges * 2);
+    void reserve(size_t vertex_capacity, size_t edge_capacity = 0) {
+        id_map.reserve(vertex_capacity);
+        reverse_id_map.reserve(vertex_capacity);
+        if (edge_capacity > 0) {
+            edge_buffer.reserve(edge_capacity);
+        }
     }
 
-    void addEdge(const VertexType& u, const VertexType& v, const WeightType& weight = 1) {
-        if (is_finalized) return;
-        uint32_t u_id = get_or_create_vertex(u);
-        uint32_t v_id = get_or_create_vertex(v);
+    void add_vertex(const VertexType& u) {
+        get_or_register_vertex(u);
+        is_finalized = false;
+    }
+    void addVertex(const VertexType& u) { add_vertex(u); }
+
+    bool has_vertex(const VertexType& u) const {
+        return id_map.find(u) != id_map.end();
+    }
+    bool hasVertex(const VertexType& u) const { return has_vertex(u); }
+
+    void add_edge(const VertexType& u, const VertexType& v, const WeightType& weight = 1) {
+        uint32_t u_id = get_or_register_vertex(u);
+        uint32_t v_id = get_or_register_vertex(v);
 
         edge_buffer.push_back({u_id, v_id, weight});
         if (!is_directed) {
             edge_buffer.push_back({v_id, u_id, weight});
         }
+        is_finalized = false;
+    }
+
+    void addEdge(const VertexType& u, const VertexType& v, const WeightType& weight = 1) {
+        add_edge(u, v, weight);
     }
 
     void finalize() {
         if (is_finalized) return;
 
-        size_t V = reverse_id_map.size();
-        size_t E = edge_buffer.size();
+        const size_t v_count = reverse_id_map.size();
+        const size_t e_count = edge_buffer.size();
 
-        row_offsets.assign(V + 1, 0);
-        col_indices.resize(E);
-        weights.resize(E);
+        offsets.assign(v_count + 1, 0);
+        column_indices.resize(e_count);
+        values.resize(e_count);
 
-        // Prebrojavanje stupnjeva za računanje offseta
         for (const auto& e : edge_buffer) {
-            row_offsets[e.src + 1]++;
+            offsets[e.src + 1]++;
         }
-        for (size_t i = 0; i < V; ++i) {
-            row_offsets[i + 1] += row_offsets[i];
+        for (size_t i = 0; i < v_count; ++i) {
+            offsets[i + 1] += offsets[i];
         }
 
-        std::vector<uint64_t> current_offsets = row_offsets;
+        std::vector<uint64_t> cursor = offsets;
         for (const auto& e : edge_buffer) {
-            uint64_t dest_idx = current_offsets[e.src]++;
-            col_indices[dest_idx] = e.dst;
-            weights[dest_idx] = e.weight;
+            uint64_t idx = cursor[e.src]++;
+            column_indices[idx] = e.dst;
+            values[idx] = e.weight;
         }
 
-        // Sortiranje susjeda svakog vrha za brzi binarni lookup
-        for (size_t i = 0; i < V; ++i) {
-            uint64_t start = row_offsets[i];
-            uint64_t end = row_offsets[i + 1];
+        for (size_t i = 0; i < v_count; ++i) {
+            uint64_t start = offsets[i];
+            uint64_t end = offsets[i + 1];
             if (start == end) continue;
 
-            std::vector<std::pair<uint32_t, WeightType>> temp(end - start);
+            std::vector<std::pair<uint32_t, WeightType>> neighbors(end - start);
             for (uint64_t j = start; j < end; ++j) {
-                temp[j - start] = {col_indices[j], weights[j]};
+                neighbors[j - start] = {column_indices[j], values[j]};
             }
-            std::sort(temp.begin(), temp.end(), [](const auto& a, const auto& b) {
-                return a.first < b.first;
-            });
+            std::sort(neighbors.begin(), neighbors.end());
+
             for (uint64_t j = start; j < end; ++j) {
-                col_indices[j] = temp[j - start].first;
-                weights[j] = temp[j - start].second;
+                column_indices[j] = neighbors[j - start].first;
+                values[j] = neighbors[j - start].second;
             }
         }
 
-        // Čišćenje privremenog buffera da se oslobodi RAM
         edge_buffer.clear();
         edge_buffer.shrink_to_fit();
         is_finalized = true;
     }
 
-    bool hasEdge(const VertexType& u, const VertexType& v) const {
+    bool has_edge(const VertexType& u, const VertexType& v) const {
         if (!is_finalized) return false;
+
         auto it_u = id_map.find(u);
         auto it_v = id_map.find(v);
         if (it_u == id_map.end() || it_v == id_map.end()) return false;
 
         uint32_t u_id = it_u->second;
         uint32_t v_id = it_v->second;
-        uint64_t start = row_offsets[u_id];
-        uint64_t end = row_offsets[u_id + 1];
 
-        // Binarna pretraga na sortiranim susjedima
-        auto it = std::lower_bound(col_indices.begin() + start, col_indices.begin() + end, v_id);
-        return (it != col_indices.begin() + end && *it == v_id);
+        auto first = column_indices.begin() + offsets[u_id];
+        auto last = column_indices.begin() + offsets[u_id + 1];
+        return std::binary_search(first, last, v_id);
     }
+    bool hasEdge(const VertexType& u, const VertexType& v) const { return has_edge(u, v); }
+
+    size_t get_degree(const VertexType& u) const {
+        auto it = id_map.find(u);
+        if (it == id_map.end()) return 0;
+        if (!is_finalized) return 0;
+        uint32_t u_id = it->second;
+        return offsets[u_id + 1] - offsets[u_id];
+    }
+    size_t getDegree(const VertexType& u) const { return get_degree(u); }
 
     template <typename Callback>
-    void forEachNeighbor(const VertexType& u, Callback&& callback) const {
+    void for_each_neighbor(const VertexType& u, Callback&& callback) const {
         if (!is_finalized) return;
         auto it = id_map.find(u);
         if (it == id_map.end()) return;
 
         uint32_t u_id = it->second;
-        uint64_t start = row_offsets[u_id];
-        uint64_t end = row_offsets[u_id + 1];
+        uint64_t start = offsets[u_id];
+        uint64_t end = offsets[u_id + 1];
 
         for (uint64_t i = start; i < end; ++i) {
-            callback(reverse_id_map[col_indices[i]], weights[i]);
+            callback(reverse_id_map[column_indices[i]], values[i]);
         }
     }
 
-    size_t numVertices() const { return reverse_id_map.size(); }
-    size_t numEdges() const { return col_indices.size() / (is_directed ? 1 : 2); }
+    template <typename Callback>
+    void forEachNeighbor(const VertexType& u, Callback&& callback) const {
+        for_each_neighbor(u, std::forward<Callback>(callback));
+    }
+
+    
+    template <typename Callback>
+    void traverse_entire_graph(Callback&& callback) const {
+        if (!is_finalized) return;
+        const size_t e_count = column_indices.size();
+        for (size_t i = 0; i < e_count; ++i) {
+            callback(reverse_id_map[column_indices[i]], values[i]);
+        }
+    }
+
+    template <typename Callback>
+    void traverseEntireGraph(Callback&& callback) const {
+        traverse_entire_graph(std::forward<Callback>(callback));
+    }
+
+    
+    template <typename Callback>
+    void bfs(const VertexType& start, Callback&& callback) const {
+        if (!is_finalized || !has_vertex(start)) return;
+        std::unordered_set<VertexType> visited;
+        std::queue<VertexType> q;
+
+        visited.insert(start);
+        q.push(start);
+
+        while (!q.empty()) {
+            VertexType current = q.front();
+            q.pop();
+            callback(current);
+
+            forEachNeighbor(current, [&](const VertexType& nxt, const WeightType&) {
+                if (!visited.contains(nxt)) {
+                    visited.insert(nxt);
+                    q.push(nxt);
+                }
+            });
+        }
+    }
+
+    
+    template <typename Callback>
+    void dfs(const VertexType& start, Callback&& callback) const {
+        if (!is_finalized || !has_vertex(start)) return;
+        std::unordered_set<VertexType> visited;
+        std::stack<VertexType> s;
+
+        s.push(start);
+
+        while (!s.empty()) {
+            VertexType current = s.top();
+            s.pop();
+
+            if (visited.contains(current)) continue;
+            visited.insert(current);
+            callback(current);
+
+            forEachNeighbor(current, [&](const VertexType& nxt, const WeightType&) {
+                if (!visited.contains(nxt)) {
+                    s.push(nxt);
+                }
+            });
+        }
+    }
+
+    
+    std::unordered_map<VertexType, WeightType> dijkstra(const VertexType& start) const {
+        std::unordered_map<VertexType, WeightType> dist;
+        if (!is_finalized || !has_vertex(start)) return dist;
+
+        using DistPair = std::pair<WeightType, VertexType>;
+        std::priority_queue<DistPair, std::vector<DistPair>, std::greater<DistPair>> pq;
+
+        dist[start] = WeightType(0);
+        pq.push({WeightType(0), start});
+
+        while (!pq.empty()) {
+            auto [d, u] = pq.top();
+            pq.pop();
+
+            if (d > dist[u]) continue;
+
+            forEachNeighbor(u, [&](const VertexType& v, const WeightType& weight) {
+                WeightType new_d = d + weight;
+                auto it = dist.find(v);
+                if (it == dist.end() || new_d < it->second) {
+                    dist[v] = new_d;
+                    pq.push({new_d, v});
+                }
+            });
+        }
+        return dist;
+    }
+
+    size_t vertex_count() const { return reverse_id_map.size(); }
+    size_t numVertices() const { return vertex_count(); }
+
+    size_t edge_count() const {
+        size_t raw_edges = is_finalized ? column_indices.size() : edge_buffer.size();
+        return is_directed ? raw_edges : raw_edges / 2;
+    }
+    size_t numEdges() const { return edge_count(); }
 };
 
 #endif // CSR_GRAPH_HPP

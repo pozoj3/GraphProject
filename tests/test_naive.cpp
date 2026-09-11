@@ -1,43 +1,105 @@
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <string>
-#include "graphengine/CSRGraph.hpp"
+#include <vector>
 
-TEST(CSRGraphTest, BuildAndFinalizePattern) {
-    CSRGraph<std::string, double> graph(true);
-    graph.reserve(3, 2);
-    graph.addEdge("A", "B", 1.5);
-    graph.addEdge("A", "C", 2.5);
+#include "graphs/NaiveGraph.hpp"
 
-    // Prije finalize upiti vraćaju false jer graf nije komprimiran
-    EXPECT_FALSE(graph.hasEdge("A", "B"));
+TEST(NaiveGraphTest, AddDirectedEdge) {
+    Graph<int, double> graph(true);
+    graph.addEdge(1, 2, 5.5);
 
-    graph.finalize();
-
-    // Nakon finalize sve radi u O(log D)
-    EXPECT_TRUE(graph.hasEdge("A", "B"));
-    EXPECT_TRUE(graph.hasEdge("A", "C"));
-    EXPECT_FALSE(graph.hasEdge("B", "A"));
-    EXPECT_EQ(graph.numVertices(), 3);
-    EXPECT_EQ(graph.numEdges(), 2);
+    EXPECT_EQ(graph.numVertices(), 2);
+    EXPECT_EQ(graph.numEdges(), 1);
+    EXPECT_TRUE(graph.hasVertex(1));
+    EXPECT_TRUE(graph.hasVertex(2));
+    EXPECT_TRUE(graph.hasEdge(1, 2));
+    EXPECT_FALSE(graph.hasEdge(2, 1));
 }
 
-TEST(CSRGraphTest, DegreeAndNeighborLookup) {
-    CSRGraph<int, double> graph(true);
-    graph.addEdge(0, 1, 4.0);
-    graph.addEdge(0, 2, 2.0);
-    graph.addEdge(1, 2, 5.0);
-    graph.addEdge(3, 0, 1.5);
-    graph.finalize();
+TEST(NaiveGraphTest, QueryMissingVerticesAndEdges) {
+    Graph<std::string, int> graph(true);
+    graph.addEdge("London", "Paris", 50);
 
-    size_t count_0 = 0;
-    graph.forEachNeighbor(0, [&](int /*neighbor*/, double /*weight*/) {
-        count_0++;
-    });
-    EXPECT_EQ(count_0, 2);
+    EXPECT_TRUE(graph.hasVertex("London"));
+    EXPECT_TRUE(graph.hasVertex("Paris"));
+    EXPECT_FALSE(graph.hasVertex("Berlin"));
 
-    size_t count_2 = 0;
-    graph.forEachNeighbor(2, [&](int /*neighbor*/, double /*weight*/) {
-        count_2++;
+    EXPECT_TRUE(graph.hasEdge("London", "Paris"));
+    EXPECT_FALSE(graph.hasEdge("London", "Berlin"));
+    EXPECT_FALSE(graph.hasEdge("Rome", "Berlin"));
+
+    size_t callback_invocations = 0;
+    graph.forEachNeighbor("Rome", [&](const std::string&, int ) {
+        ++callback_invocations;
     });
-    EXPECT_EQ(count_2, 0); // Vrh 2 nema izlaznih bridova
+    EXPECT_EQ(callback_invocations, 0);
+}
+
+TEST(NaiveGraphTest, IterateMultipleNeighbors) {
+    Graph<std::string, int> graph(true);
+    graph.addEdge("A", "B", 10);
+    graph.addEdge("A", "C", 20);
+    graph.addEdge("A", "D", 30);
+
+    EXPECT_EQ(graph.numVertices(), 4);
+    EXPECT_EQ(graph.numEdges(), 3);
+
+    std::vector<std::pair<std::string, int>> neighbors;
+    graph.forEachNeighbor("A", [&](const std::string& target, int weight) {
+        neighbors.emplace_back(target, weight);
+    });
+
+    EXPECT_EQ(neighbors.size(), 3);
+    std::sort(neighbors.begin(), neighbors.end());
+
+    EXPECT_EQ(neighbors[0].first, "B");
+    EXPECT_EQ(neighbors[0].second, 10);
+
+    EXPECT_EQ(neighbors[1].first, "C");
+    EXPECT_EQ(neighbors[1].second, 20);
+
+    EXPECT_EQ(neighbors[2].first, "D");
+    EXPECT_EQ(neighbors[2].second, 30);
+}
+
+TEST(NaiveGraphTest, UndirectedEdgeSymmetry) {
+    Graph<std::string, double> graph(false);
+    graph.addEdge("London", "Paris", 400.0);
+
+    EXPECT_EQ(graph.numVertices(), 2);
+    EXPECT_EQ(graph.numEdges(), 1);
+    EXPECT_TRUE(graph.hasEdge("London", "Paris"));
+    EXPECT_TRUE(graph.hasEdge("Paris", "London"));
+
+    size_t london_degree = 0;
+    graph.forEachNeighbor("London", [&](const std::string& target, double weight) {
+        ++london_degree;
+        EXPECT_EQ(target, "Paris");
+        EXPECT_DOUBLE_EQ(weight, 400.0);
+    });
+    EXPECT_EQ(london_degree, 1);
+
+    size_t paris_degree = 0;
+    graph.forEachNeighbor("Paris", [&](const std::string& target, double weight) {
+        ++paris_degree;
+        EXPECT_EQ(target, "London");
+        EXPECT_DOUBLE_EQ(weight, 400.0);
+    });
+    EXPECT_EQ(paris_degree, 1);
+}
+
+TEST(NaiveGraphTest, AddIsolatedVertex) {
+    Graph<int, int> graph(true);
+    graph.addVertex(100);
+
+    EXPECT_TRUE(graph.hasVertex(100));
+    EXPECT_EQ(graph.numVertices(), 1);
+    EXPECT_EQ(graph.numEdges(), 0);
+
+    size_t neighbor_count = 0;
+    graph.forEachNeighbor(100, [&](int, int) {
+        ++neighbor_count;
+    });
+    EXPECT_EQ(neighbor_count, 0);
 }
