@@ -57,20 +57,26 @@ Run specific tests using GTest filters:
 
 Run the full benchmark suite directly:
 
-    ./bench_main
+    ./run_benchmarks
 
 Filter specific benchmark suites:
 
     # Benchmark only initial edge insertions:
-    ./bench_main --benchmark_filter="BM_EdgeInsertion"
+    ./run_benchmarks --benchmark_filter="BM_EdgeInsertion"
 
     # Benchmark Breadth-First Search (BFS):
-    ./bench_main --benchmark_filter=".*BFS.*"
+    ./run_benchmarks --benchmark_filter=".*BFS.*"
 
-    # Compare performance on complex strings and heavy payload types:
-    ./bench_main --benchmark_filter="BM_LargeComplexVertex|BM_HeavyVertex"
+    # Compare performance of direct vs. external storage for complex/heavy types:
+    ./run_benchmarks --benchmark_filter=".*BigClass.*"
+
+    # Benchmark specific graph topologies (Sparse, Dense, R-MAT, 2D Grid):
+    ./run_benchmarks --benchmark_filter=".*Topology.*"
+    
+    # Compare template (static) vs. virtual (polymorphic) graph performance:
+    ./run_benchmarks --benchmark_filter=".*Polymorphism.*"
 
 Export benchmark results to JSON:
 
-    ./bench_main --benchmark_out=benchmark_results.json --benchmark_out_format=json
+    ./run_benchmarks --benchmark_out=benchmark_results.json --benchmark_out_format=json
     

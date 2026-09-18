@@ -1,5 +1,5 @@
-#ifndef CSR_GRAPH_HPP
-#define CSR_GRAPH_HPP
+#ifndef DYNAMIC_CSR_GRAPH_HPP
+#define DYNAMIC_CSR_GRAPH_HPP
 
 #include <vector>
 #include <unordered_map>
@@ -9,16 +9,18 @@
 #include <utility>
 #include "Concepts.hpp"
 #include "BaseGraph.hpp"
+#include "RawGraph.hpp"
 
 template <typename VertexType, Numeric WeightType = double>
-class CSRGraph : public BaseGraph<CSRGraph<VertexType, WeightType>, VertexType, WeightType> {
-private:
+class DynamicCSRGraph : public BaseGraph<DynamicCSRGraph<VertexType, WeightType>, VertexType, WeightType> {
+public:
     struct RawEdge {
         uint32_t src;
         uint32_t dst;
         WeightType weight;
     };
 
+private:
     std::unordered_map<VertexType, uint32_t> idMap;
     std::vector<VertexType> reverseIdMap;
 
@@ -27,7 +29,6 @@ private:
     std::vector<WeightType> values;
 
     std::vector<RawEdge> edgeBuffer;
-    bool isFinalized{false};
 
     uint32_t getOrRegisterVertex(const VertexType& u) {
         auto it = idMap.find(u);
@@ -39,46 +40,7 @@ private:
         return newId;
     }
 
-public:
-    using Base = BaseGraph<CSRGraph<VertexType, WeightType>, VertexType, WeightType>;
-
-    explicit CSRGraph(bool directed = false) : Base(directed) {}
-
-    void reserve(std::size_t vertexCapacity, std::size_t edgeCapacity = 0) {
-        idMap.reserve(vertexCapacity);
-        reverseIdMap.reserve(vertexCapacity);
-        if (edgeCapacity > 0) {
-            edgeBuffer.reserve(edgeCapacity);
-        }
-    }
-
-    void addVertex(const VertexType& u) {
-        getOrRegisterVertex(u);
-        isFinalized = false;
-    }
-
-    bool hasVertex(const VertexType& u) const {
-        return idMap.find(u) != idMap.end();
-    }
-
-    void addEdge(const VertexType& u, const VertexType& v, const WeightType& weight = 1) {
-        uint32_t uId = getOrRegisterVertex(u);
-        uint32_t vId = getOrRegisterVertex(v);
-
-        edgeBuffer.push_back({uId, vId, weight});
-        if (!this->isDirected && uId != vId) {
-            edgeBuffer.push_back({vId, uId, weight});
-        }
-        isFinalized = false;
-    }
-
-    void addEdgeDynamic(const VertexType& u, const VertexType& v, const WeightType& weight = 1) {
-        addEdge(u, v, weight);
-    }
-
-    void finalize() {
-        if (isFinalized) return;
-
+    void rebuild() {
         const std::size_t vCount = reverseIdMap.size();
         const std::size_t eCount = edgeBuffer.size();
 
@@ -136,15 +98,74 @@ public:
         columnIndices = std::move(newColumnIndices);
         values = std::move(newValues);
         offsets = std::move(newOffsets);
+    }
 
-        edgeBuffer.clear();
-        edgeBuffer.shrink_to_fit();
-        isFinalized = true;
+public:
+    using Base = BaseGraph<DynamicCSRGraph<VertexType, WeightType>, VertexType, WeightType>;
+
+    explicit DynamicCSRGraph(bool directed = false) : Base(directed) {
+        offsets.assign(1, 0);
+    }
+    
+    explicit DynamicCSRGraph(RawGraph<VertexType, WeightType>&& raw)
+        : Base(true) {
+        std::size_t vCount = raw.numVertices();
+        std::size_t eCount = raw.numEdges();
+
+        idMap.reserve(vCount);
+        reverseIdMap.reserve(vCount);
+        edgeBuffer.reserve(eCount);
+
+        for (uint32_t u = 0; u < vCount; ++u) {
+            getOrRegisterVertex(static_cast<VertexType>(u));
+        }
+
+        for (uint32_t u = 0; u < vCount; ++u) {
+            raw.forEachNeighbor(static_cast<VertexType>(u), [&](const VertexType& v, WeightType w) {
+                uint32_t uId = getOrRegisterVertex(static_cast<VertexType>(u));
+                uint32_t vId = getOrRegisterVertex(v);
+                edgeBuffer.push_back({uId, vId, w});
+            });
+        }
+
+        rebuild();
+    }
+
+    void reserve(std::size_t vertexCapacity, std::size_t edgeCapacity = 0) {
+        idMap.reserve(vertexCapacity);
+        reverseIdMap.reserve(vertexCapacity);
+        if (edgeCapacity > 0) {
+            edgeBuffer.reserve(edgeCapacity);
+        }
+    }
+
+    void addVertex(const VertexType& u) {
+        if (!hasVertex(u)) {
+            getOrRegisterVertex(u);
+            rebuild();
+        }
+    }
+
+    bool hasVertex(const VertexType& u) const {
+        return idMap.find(u) != idMap.end();
+    }
+
+    void addEdge(const VertexType& u, const VertexType& v, const WeightType& weight = 1) {
+        uint32_t uId = getOrRegisterVertex(u);
+        uint32_t vId = getOrRegisterVertex(v);
+
+        edgeBuffer.push_back({uId, vId, weight});
+        if (!this->isDirected && uId != vId) {
+            edgeBuffer.push_back({vId, uId, weight});
+        }
+        rebuild();
+    }
+
+    void addEdgeDynamic(const VertexType& u, const VertexType& v, const WeightType& weight = 1) {
+        addEdge(u, v, weight);
     }
 
     bool hasEdge(const VertexType& u, const VertexType& v) const {
-        if (!isFinalized) return false;
-
         auto itU = idMap.find(u);
         auto itV = idMap.find(v);
         if (itU == idMap.end() || itV == idMap.end()) return false;
@@ -158,8 +179,6 @@ public:
     }
 
     bool hasEdge(const VertexType& u, const VertexType& v, const WeightType& w) const {
-        if (!isFinalized) return false;
-
         auto itU = idMap.find(u);
         auto itV = idMap.find(v);
         if (itU == idMap.end() || itV == idMap.end()) return false;
@@ -177,14 +196,13 @@ public:
 
     std::size_t getDegree(const VertexType& u) const {
         auto it = idMap.find(u);
-        if (it == idMap.end() || !isFinalized) return 0;
+        if (it == idMap.end()) return 0;
         uint32_t uId = it->second;
         return offsets[uId + 1] - offsets[uId];
     }
 
     template <typename Callback>
     void forEachNeighbor(const VertexType& u, Callback&& callback) const {
-        if (!isFinalized) return;
         auto it = idMap.find(u);
         if (it == idMap.end()) return;
 
@@ -199,7 +217,6 @@ public:
 
     template <typename Callback>
     void traverseEntireGraph(Callback&& callback) const {
-        if (!isFinalized) return;
         for (std::size_t uId = 0; uId < reverseIdMap.size(); ++uId) {
             uint64_t start = offsets[uId];
             uint64_t end = offsets[uId + 1];
@@ -209,16 +226,21 @@ public:
         }
     }
 
-    std::size_t numVertices() const { 
-        return reverseIdMap.size(); 
+    std::size_t numVertices() const {
+        return reverseIdMap.size();
     }
 
     std::size_t numEdges() const {
-        std::size_t rawEdges = isFinalized ? columnIndices.size() : edgeBuffer.size();
-        return this->isDirected ? rawEdges : rawEdges / 2;
+        return this->isDirected ? columnIndices.size() : columnIndices.size() / 2;
     }
+
+    const std::unordered_map<VertexType, uint32_t>& getIdMap() const { return idMap; }
+    const std::vector<VertexType>& getReverseIdMap() const { return reverseIdMap; }
+    const std::vector<uint64_t>& getOffsets() const { return offsets; }
+    const std::vector<uint32_t>& getColumnIndices() const { return columnIndices; }
+    const std::vector<WeightType>& getValues() const { return values; }
 };
 
-static_assert(GraphReq<CSRGraph<int, double>, int, double>);
+static_assert(GraphReq<DynamicCSRGraph<int, double>, int, double>);
 
-#endif // CSR_GRAPH_HPP
+#endif // DYNAMIC_CSR_GRAPH_HPP

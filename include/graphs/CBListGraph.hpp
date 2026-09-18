@@ -1,334 +1,287 @@
-#ifndef CBLIST_GRAPH_HPP
-#define CBLIST_GRAPH_HPP
+#pragma once
 
-#include <vector>
-#include <unordered_map>
-#include <unordered_set>
-#include <queue>
-#include <stack>
 #include <cstdint>
-#include <algorithm>
+#include <vector>
+#include <memory>
 #include <utility>
+#include <functional>
+#include <queue>
 #include <limits>
-#include "Concepts.hpp"
+#include <unordered_map>
+#include <stdexcept>
+#include <string>
+#include <algorithm>
+#include "RawGraph.hpp"
 
-// SoA (Structure of Arrays) Chunk sa savršenim 192B poravnanjem (3x64B cache linije)
-template <Numeric WeightType, size_t CAPACITY = 14>
-struct alignas(64) EdgeChunk {
-    EdgeChunk* next_local{nullptr};   // 8 bytes
-    EdgeChunk* next_global{nullptr};  // 8 bytes
-    uint32_t count{0};                // 4 bytes
-    uint32_t padding{0};              // 4 bytes (poravnanje na 8B granicu)
-    uint32_t destinations[CAPACITY];  // 14 * 4 = 56 bytes
-    WeightType weights[CAPACITY];     // 14 * 8 = 112 bytes
-                                      // Ukupno: 16 + 8 + 56 + 112 = 192 bytes
-
-    bool is_full() const noexcept { return count >= CAPACITY; }
-
-    // Sortirano umetanje unutar chunka radi brze pretrage
-    bool push(uint32_t dest, WeightType weight) noexcept {
-        if (is_full()) return false;
-        
-        int i = count - 1;
-        while (i >= 0 && destinations[i] > dest) {
-            destinations[i + 1] = destinations[i];
-            weights[i + 1] = weights[i];
-            i--;
-        }
-        destinations[i + 1] = dest;
-        weights[i + 1] = weight;
-        count++;
-        return true;
-    }
-};
-
-// Brzi blok-alokator koji drži chunkove fizički zajedno u RAM-u
-template <Numeric WeightType, size_t CAPACITY = 14>
+template <typename WeightType, size_t ChunkSize = 14>
 class ChunkArena {
-private:
-    static constexpr size_t CHUNKS_PER_BLOCK = 65536;
-    std::vector<EdgeChunk<WeightType, CAPACITY>*> blocks;
-    size_t current_chunk_idx{CHUNKS_PER_BLOCK};
-
 public:
-    ~ChunkArena() {
-        for (auto* block : blocks) {
-            delete[] block;
-        }
+    struct Chunk {
+        uint32_t targets[ChunkSize];
+        WeightType weights[ChunkSize];
+        uint32_t count{0};
+        Chunk* next{nullptr};
+    };
+
+    ChunkArena() = default;
+    ~ChunkArena() = default;
+
+    ChunkArena(ChunkArena&& other) noexcept = default;
+    ChunkArena& operator=(ChunkArena&& other) noexcept = default;
+
+    ChunkArena(const ChunkArena&) = delete;
+    ChunkArena& operator=(const ChunkArena&) = delete;
+
+    Chunk* allocate() {
+        storage_.push_back(std::make_unique<Chunk>());
+        return storage_.back().get();
     }
 
-    EdgeChunk<WeightType, CAPACITY>* allocate() {
-        if (current_chunk_idx >= CHUNKS_PER_BLOCK) {
-            // value-initialization (zgrade) osigurava da su pokazivači i count na 0
-            blocks.push_back(new EdgeChunk<WeightType, CAPACITY>[CHUNKS_PER_BLOCK]());
-            current_chunk_idx = 0;
-        }
-        return &blocks.back()[current_chunk_idx++];
+    void clear() noexcept {
+        storage_.clear();
     }
-};
 
-template <Numeric WeightType>
-struct VertexNode {
-    uint32_t degree{0};
-    EdgeChunk<WeightType>* head{nullptr};
-    EdgeChunk<WeightType>* tail{nullptr};
-};
+    size_t size() const noexcept {
+        return storage_.size();
+    }
 
-template <typename VertexType, Numeric WeightType = double>
-class CBListGraph {
 private:
-    std::unordered_map<VertexType, uint32_t> id_map;
-    std::vector<VertexType> reverse_id_map;
-    std::vector<VertexNode<WeightType>> vertex_table;
+    std::vector<std::unique_ptr<Chunk>> storage_;
+};
 
-    ChunkArena<WeightType> allocator;
-    EdgeChunk<WeightType>* global_head{nullptr};
-    EdgeChunk<WeightType>* global_tail{nullptr};
+template <typename VertexType = uint32_t, typename WeightType = double>
+class CBListGraph {
+public:
+    using Chunk = typename ChunkArena<WeightType>::Chunk;
 
-    uint64_t total_edges{0};
-    bool is_directed{false};
+    struct NodeHead {
+        Chunk* first{nullptr};
+        Chunk* last{nullptr};
+    };
 
-    uint32_t get_or_register_vertex(const VertexType& u) {
-        auto it = id_map.find(u);
-        if (it != id_map.end()) return it->second;
+    explicit CBListGraph(RawGraph<VertexType, WeightType>&& raw)
+        : CBListGraph(true) {
+        this->reserve(raw.numVertices(), raw.numEdges());
+        for (uint32_t u = 0; u < raw.numVertices(); ++u) {
+            raw.forEachNeighbor(u, [&](const VertexType& v, WeightType w) {
+                this->addEdge(u, v, w);
+            });
+        }
+    }
 
-        uint32_t new_id = static_cast<uint32_t>(vertex_table.size());
-        id_map[u] = new_id;
-        reverse_id_map.push_back(u);
+    explicit CBListGraph(bool directed = true) 
+        : directed_(directed), num_edges_(0) {}
 
-        // Lijena alokacija: ne alociramo chunk dok ne dođe stvarni brid
-        vertex_table.push_back({.degree = 0, .head = nullptr, .tail = nullptr});
+    ~CBListGraph() = default;
+
+    CBListGraph(CBListGraph&& other) noexcept = default;
+    CBListGraph& operator=(CBListGraph&& other) noexcept = default;
+
+    CBListGraph(const CBListGraph&) = delete;
+    CBListGraph& operator=(const CBListGraph&) = delete;
+
+    void reserve(size_t num_vertices, size_t num_edges = 0) {
+        (void)num_edges;
+        heads_.reserve(num_vertices);
+        vertex_to_id_.reserve(num_vertices);
+        id_to_vertex_.reserve(num_vertices);
+    }
+
+    uint32_t addVertex(const VertexType& v) {
+        auto it = vertex_to_id_.find(v);
+        if (it != vertex_to_id_.end()) {
+            return it->second;
+        }
+        uint32_t new_id = static_cast<uint32_t>(id_to_vertex_.size());
+        vertex_to_id_[v] = new_id;
+        id_to_vertex_.push_back(v);
+        heads_.push_back(NodeHead{nullptr, nullptr});
         return new_id;
     }
 
-    void insert_directed_edge(uint32_t src_id, uint32_t dst_id, WeightType weight) {
-        auto& node = vertex_table[src_id];
-        
-        // Inicijalizacija prvog chunka ako je vrh bio prazan
-        if (!node.tail) {
-            auto* new_chunk = allocator.allocate();
-            new_chunk->push(dst_id, weight);
-            node.head = new_chunk;
-            node.tail = new_chunk;
+    bool hasVertex(const VertexType& v) const {
+        return vertex_to_id_.find(v) != vertex_to_id_.end();
+    }
 
-            if (!global_head) {
-                global_head = new_chunk;
-                global_tail = new_chunk;
+    size_t getDegree(const VertexType& v) const {
+        auto it = vertex_to_id_.find(v);
+        if (it == vertex_to_id_.end()) return 0;
+        uint32_t u_id = it->second;
+
+        size_t degree = 0;
+        const Chunk* curr = heads_[u_id].first;
+        while (curr != nullptr) {
+            degree += curr->count;
+            curr = curr->next;
+        }
+        return degree;
+    }
+
+    void insertDirectedEdge(uint32_t u_id, uint32_t v_id, WeightType w) {
+        NodeHead& head = heads_[u_id];
+        if (head.last == nullptr || head.last->count >= 14) {
+            Chunk* chunk = arena_.allocate();
+            chunk->next = nullptr;
+            chunk->count = 0;
+            if (head.first == nullptr) {
+                head.first = chunk;
             } else {
-                global_tail->next_global = new_chunk;
-                global_tail = new_chunk;
+                head.last->next = chunk;
             }
-            node.degree++;
-            total_edges++;
-            return;
+            head.last = chunk;
         }
 
-        auto* active_tail = node.tail;
-        if (active_tail->push(dst_id, weight)) {
-            node.degree++;
-            total_edges++;
-            return;
+        head.last->targets[head.last->count] = v_id;
+        head.last->weights[head.last->count] = w;
+        ++head.last->count;
+    }
+
+    void addEdge(const VertexType& u, const VertexType& v, const WeightType& w) {
+        uint32_t u_id = addVertex(u);
+        uint32_t v_id = addVertex(v);
+
+        insertDirectedEdge(u_id, v_id, w);
+        if (!directed_) {
+            insertDirectedEdge(v_id, u_id, w);
         }
-
-        // Chunk je pun, alociraj novi
-        auto* new_chunk = allocator.allocate();
-        new_chunk->push(dst_id, weight);
-
-        active_tail->next_local = new_chunk;
-        node.tail = new_chunk;
-
-        global_tail->next_global = new_chunk;
-        global_tail = new_chunk;
-
-        node.degree++;
-        total_edges++;
+        ++num_edges_;
     }
 
-public:
-    explicit CBListGraph(bool directed = false) : is_directed(directed) {}
-    ~CBListGraph() = default; // ChunkArena automatski čisti svu memoriju
-
-    void reserve(size_t vertex_capacity) {
-        vertex_table.reserve(vertex_capacity);
-        reverse_id_map.reserve(vertex_capacity);
-        id_map.reserve(vertex_capacity);
-    }
-
-    void add_vertex(const VertexType& u) { get_or_register_vertex(u); }
-    void addVertex(const VertexType& u) { add_vertex(u); }
-
-    bool has_vertex(const VertexType& u) const {
-        return id_map.find(u) != id_map.end();
-    }
-    bool hasVertex(const VertexType& u) const { return has_vertex(u); }
-
-    void add_edge(const VertexType& u, const VertexType& v, const WeightType& weight = 1) {
-        uint32_t u_id = get_or_register_vertex(u);
-        uint32_t v_id = get_or_register_vertex(v);
-
-        insert_directed_edge(u_id, v_id, weight);
-        if (!is_directed) {
-            insert_directed_edge(v_id, u_id, weight);
+    bool hasEdge(const VertexType& u, const VertexType& v) const {
+        auto it_u = vertex_to_id_.find(u);
+        auto it_v = vertex_to_id_.find(v);
+        if (it_u == vertex_to_id_.end() || it_v == vertex_to_id_.end()) {
+            return false;
         }
-    }
-    void addEdge(const VertexType& u, const VertexType& v, const WeightType& weight = 1) {
-        add_edge(u, v, weight);
-    }
-    void add_edge_dynamic(const VertexType& u, const VertexType& v, const WeightType& weight = 1) {
-        add_edge(u, v, weight);
-    }
-    void addEdgeDynamic(const VertexType& u, const VertexType& v, const WeightType& weight = 1) {
-        add_edge_dynamic(u, v, weight);
-    }
+        uint32_t u_id = it_u->second;
+        uint32_t v_id = it_v->second;
 
-    bool has_edge(const VertexType& u, const VertexType& v) const {
-        auto it_u = id_map.find(u);
-        auto it_v = id_map.find(v);
-        if (it_u == id_map.end() || it_v == id_map.end()) return false;
-
-        uint32_t target_id = it_v->second;
-        const auto& node = vertex_table[it_u->second];
-        EdgeChunk<WeightType>* chunk = node.head;
-
-        while (chunk) {
-            for (uint32_t i = 0; i < chunk->count; ++i) {
-                if (chunk->destinations[i] == target_id) return true;
-                if (chunk->destinations[i] > target_id) break; // Rani izlaz zbog sortiranosti
+        const Chunk* curr = heads_[u_id].first;
+        while (curr != nullptr) {
+            for (uint32_t i = 0; i < curr->count; ++i) {
+                if (curr->targets[i] == v_id) {
+                    return true;
+                }
             }
-            chunk = chunk->next_local;
+            curr = curr->next;
         }
         return false;
     }
-    bool hasEdge(const VertexType& u, const VertexType& v) const { return has_edge(u, v); }
-
-    size_t get_degree(const VertexType& u) const {
-        auto it = id_map.find(u);
-        if (it == id_map.end()) return 0;
-        return vertex_table[it->second].degree;
-    }
-    size_t getDegree(const VertexType& u) const { return get_degree(u); }
 
     template <typename Callback>
-    void for_each_neighbor(const VertexType& u, Callback&& callback) const {
-        auto it = id_map.find(u);
-        if (it == id_map.end()) return;
+    void forEachNeighbor(const VertexType& u, Callback&& cb) const {
+        auto it = vertex_to_id_.find(u);
+        if (it == vertex_to_id_.end()) return;
+        uint32_t u_id = it->second;
 
-        const auto& node = vertex_table[it->second];
-        EdgeChunk<WeightType>* chunk = node.head;
-
-        while (chunk) {
-            if (chunk->next_local) {
-                __builtin_prefetch(chunk->next_local, 0, 1);
+        const Chunk* curr = heads_[u_id].first;
+        while (curr != nullptr) {
+            for (uint32_t i = 0; i < curr->count; ++i) {
+                cb(id_to_vertex_[curr->targets[i]], curr->weights[i]);
             }
-            for (uint32_t i = 0; i < chunk->count; ++i) {
-                callback(reverse_id_map[chunk->destinations[i]], chunk->weights[i]);
-            }
-            chunk = chunk->next_local;
+            curr = curr->next;
         }
     }
-    template <typename Callback>
-    void forEachNeighbor(const VertexType& u, Callback&& callback) const {
-        for_each_neighbor(u, std::forward<Callback>(callback));
-    }
 
     template <typename Callback>
-    void traverse_entire_graph(Callback&& callback) const {
-        EdgeChunk<WeightType>* chunk = global_head;
-        while (chunk) {
-            if (chunk->next_global) {
-                __builtin_prefetch(chunk->next_global, 0, 3);
+    void traverseEntireGraph(Callback&& cb) const {
+        for (size_t u_id = 0; u_id < heads_.size(); ++u_id) {
+            const Chunk* curr = heads_[u_id].first;
+            while (curr != nullptr) {
+                for (uint32_t i = 0; i < curr->count; ++i) {
+                    cb(id_to_vertex_[u_id], id_to_vertex_[curr->targets[i]], curr->weights[i]);
+                }
+                curr = curr->next;
             }
-            for (uint32_t i = 0; i < chunk->count; ++i) {
-                callback(reverse_id_map[chunk->destinations[i]], chunk->weights[i]);
-            }
-            chunk = chunk->next_global;
         }
     }
-    template <typename Callback>
-    void traverseEntireGraph(Callback&& callback) const {
-        traverse_entire_graph(std::forward<Callback>(callback));
-    }
 
     template <typename Callback>
-    void bfs(const VertexType& start, Callback&& callback) const {
-        if (!has_vertex(start)) return;
-        std::unordered_set<VertexType> visited;
-        std::queue<VertexType> q;
+    void bfs(const VertexType& start, Callback&& cb) const {
+        auto it = vertex_to_id_.find(start);
+        if (it == vertex_to_id_.end()) return;
 
-        visited.insert(start);
-        q.push(start);
+        std::vector<bool> visited(heads_.size(), false);
+        std::queue<uint32_t> q;
+
+        uint32_t start_id = it->second;
+        visited[start_id] = true;
+        q.push(start_id);
 
         while (!q.empty()) {
-            VertexType current = q.front();
+            uint32_t curr_id = q.front();
             q.pop();
-            callback(current);
+            cb(id_to_vertex_[curr_id]);
 
-            forEachNeighbor(current, [&](const VertexType& nxt, const WeightType&) {
-                if (!visited.contains(nxt)) {
-                    visited.insert(nxt);
-                    q.push(nxt);
+            const Chunk* curr = heads_[curr_id].first;
+            while (curr != nullptr) {
+                for (uint32_t i = 0; i < curr->count; ++i) {
+                    uint32_t nbr_id = curr->targets[i];
+                    if (!visited[nbr_id]) {
+                        visited[nbr_id] = true;
+                        q.push(nbr_id);
+                    }
                 }
-            });
-        }
-    }
-
-    template <typename Callback>
-    void dfs(const VertexType& start, Callback&& callback) const {
-        if (!has_vertex(start)) return;
-        std::unordered_set<VertexType> visited;
-        std::stack<VertexType> s;
-
-        s.push(start);
-
-        while (!s.empty()) {
-            VertexType current = s.top();
-            s.pop();
-
-            if (visited.contains(current)) continue;
-            visited.insert(current);
-            callback(current);
-
-            forEachNeighbor(current, [&](const VertexType& nxt, const WeightType&) {
-                if (!visited.contains(nxt)) {
-                    s.push(nxt);
-                }
-            });
+                curr = curr->next;
+            }
         }
     }
 
     std::unordered_map<VertexType, WeightType> dijkstra(const VertexType& start) const {
-        std::unordered_map<VertexType, WeightType> dist;
-        if (!has_vertex(start)) return dist;
+        std::unordered_map<VertexType, WeightType> dist_map;
+        for (const auto& v : id_to_vertex_) {
+            dist_map[v] = std::numeric_limits<WeightType>::infinity();
+        }
 
-        using DistPair = std::pair<WeightType, VertexType>;
-        std::priority_queue<DistPair, std::vector<DistPair>, std::greater<DistPair>> pq;
+        auto it = vertex_to_id_.find(start);
+        if (it == vertex_to_id_.end()) return dist_map;
 
-        dist[start] = WeightType(0);
-        pq.push({WeightType(0), start});
+        uint32_t start_id = it->second;
+        std::vector<WeightType> dist(heads_.size(), std::numeric_limits<WeightType>::infinity());
+
+        using Pair = std::pair<WeightType, uint32_t>;
+        std::priority_queue<Pair, std::vector<Pair>, std::greater<Pair>> pq;
+
+        dist[start_id] = 0;
+        pq.emplace(0, start_id);
 
         while (!pq.empty()) {
-            auto [d, u] = pq.top();
+            auto [d, u_id] = pq.top();
             pq.pop();
 
-            if (d > dist[u]) continue;
+            if (d > dist[u_id]) continue;
 
-            forEachNeighbor(u, [&](const VertexType& v, const WeightType& weight) {
-                WeightType new_d = d + weight;
-                auto it = dist.find(v);
-                if (it == dist.end() || new_d < it->second) {
-                    dist[v] = new_d;
-                    pq.push({new_d, v});
+            const Chunk* curr = heads_[u_id].first;
+            while (curr != nullptr) {
+                for (uint32_t i = 0; i < curr->count; ++i) {
+                    WeightType w = curr->weights[i];
+                    if (w < 0) {
+                        throw std::invalid_argument("Dijkstra does not support negative edge weights.");
+                    }
+                    uint32_t v_id = curr->targets[i];
+                    if (dist[u_id] + w < dist[v_id]) {
+                        dist[v_id] = dist[u_id] + w;
+                        pq.emplace(dist[v_id], v_id);
+                    }
                 }
-            });
+                curr = curr->next;
+            }
         }
-        return dist;
+
+        for (size_t i = 0; i < id_to_vertex_.size(); ++i) {
+            dist_map[id_to_vertex_[i]] = dist[i];
+        }
+        return dist_map;
     }
 
-    size_t vertex_count() const { return vertex_table.size(); }
-    size_t numVertices() const { return vertex_count(); }
+    uint32_t numVertices() const { return static_cast<uint32_t>(id_to_vertex_.size()); }
+    uint64_t numEdges() const { return num_edges_; }
 
-    size_t edge_count() const { return is_directed ? total_edges : total_edges / 2; }
-    size_t numEdges() const { return edge_count(); }
+private:
+    bool directed_;
+    uint64_t num_edges_;
+    std::vector<NodeHead> heads_;
+    std::unordered_map<VertexType, uint32_t> vertex_to_id_;
+    std::vector<VertexType> id_to_vertex_;
+    ChunkArena<WeightType> arena_;
 };
-
-#endif // CBLIST_GRAPH_HPP
