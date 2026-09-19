@@ -1,6 +1,7 @@
 #ifndef DYNAMIC_CSR_GRAPH_HPP
 #define DYNAMIC_CSR_GRAPH_HPP
 
+// CSR that rebuilds fully on every addEdge
 #include <vector>
 #include <unordered_map>
 #include <algorithm>
@@ -106,27 +107,20 @@ public:
     explicit DynamicCSRGraph(bool directed = false) : Base(directed) {
         offsets.assign(1, 0);
     }
-    
+
     explicit DynamicCSRGraph(RawGraph<VertexType, WeightType>&& raw)
         : Base(true) {
-        std::size_t vCount = raw.numVertices();
-        std::size_t eCount = raw.numEdges();
+        idMap.reserve(raw.numVertices());
+        reverseIdMap.reserve(raw.numVertices());
+        edgeBuffer.reserve(raw.getEdgeList().size());
 
-        idMap.reserve(vCount);
-        reverseIdMap.reserve(vCount);
-        edgeBuffer.reserve(eCount);
-
-        for (uint32_t u = 0; u < vCount; ++u) {
-            getOrRegisterVertex(static_cast<VertexType>(u));
+        for (const VertexType& vertex : raw.getReverseIdMap()) {
+            getOrRegisterVertex(vertex);
         }
 
-        for (uint32_t u = 0; u < vCount; ++u) {
-            raw.forEachNeighbor(static_cast<VertexType>(u), [&](const VertexType& v, WeightType w) {
-                uint32_t uId = getOrRegisterVertex(static_cast<VertexType>(u));
-                uint32_t vId = getOrRegisterVertex(v);
-                edgeBuffer.push_back({uId, vId, w});
-            });
-        }
+        raw.traverseEntireGraph([&](const VertexType& u, const VertexType& v, const WeightType& w) {
+            edgeBuffer.push_back({idMap.at(u), idMap.at(v), w});
+        });
 
         rebuild();
     }
@@ -239,8 +233,15 @@ public:
     const std::vector<uint64_t>& getOffsets() const { return offsets; }
     const std::vector<uint32_t>& getColumnIndices() const { return columnIndices; }
     const std::vector<WeightType>& getValues() const { return values; }
+
+    std::size_t memoryUsageBytes() const {
+        return offsets.capacity() * sizeof(uint64_t)
+             + columnIndices.capacity() * sizeof(uint32_t)
+             + values.capacity() * sizeof(WeightType)
+             + edgeBuffer.capacity() * sizeof(RawEdge);
+    }
 };
 
 static_assert(GraphReq<DynamicCSRGraph<int, double>, int, double>);
 
-#endif // DYNAMIC_CSR_GRAPH_HPP
+#endif

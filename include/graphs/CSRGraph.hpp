@@ -1,6 +1,8 @@
 #ifndef CSR_GRAPH_HPP
 #define CSR_GRAPH_HPP
 
+// Compressed Sparse Row with explicit finalize(), its outdated (replaced by static and dynamic csr)
+
 #include <vector>
 #include <unordered_map>
 #include <algorithm>
@@ -209,16 +211,23 @@ public:
         }
     }
 
-    std::size_t numVertices() const { 
-        return reverseIdMap.size(); 
+    std::size_t numVertices() const {
+        return reverseIdMap.size();
     }
 
     std::size_t numEdges() const {
         std::size_t rawEdges = isFinalized ? columnIndices.size() : edgeBuffer.size();
         return this->isDirected ? rawEdges : rawEdges / 2;
     }
+
+    std::size_t memoryUsageBytes() const {
+        return offsets.capacity() * sizeof(uint64_t)
+             + columnIndices.capacity() * sizeof(uint32_t)
+             + values.capacity() * sizeof(WeightType)
+             + edgeBuffer.capacity() * sizeof(RawEdge);
+    }
 };
 
 static_assert(GraphReq<CSRGraph<int, double>, int, double>);
 
-#endif // CSR_GRAPH_HPP
+#endif

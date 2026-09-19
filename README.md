@@ -1,82 +1,118 @@
-# High-Performance C++ Graph & Memory Benchmark Suite
+# GraphProject
 
-A C++ implementation of three distinct graph data structure architectures with an emphasis on hardware-level memory optimization (cache-line alignment), custom block allocation, and throughput.
+A header-only C++20 library of graph storage structures behind a single,
+statically dispatched interface, together with a reproducible Google Benchmark
+suite, a GoogleTest test suite, and a Jupyter notebook that visualizes the
+results.
 
-The project evaluates and benchmarks the following implementations:
-- NaiveGraph: A conventional adjacency list based on std::unordered_map and std::vector.
-- CSRGraph: A static Compressed Sparse Row representation optimized for cache locality and binary search, requiring finalize() before lookups.
-- CBListGraph: A hybrid chunked linked-list architecture utilizing 14-element blocks (EdgeChunk) aligned to 64-byte boundaries (alignas(64), exactly 192 bytes) powered by a custom block allocator (ChunkArena).
+The project studies one question: how much does the in-memory layout of a graph
+matter for real performance? To keep the comparison fair, all six storage
+structures share one implementation of BFS, DFS and Dijkstra (through the CRTP
+base class), so the layout is the only thing that changes between them.
 
-Inspired by research on bridging static and dynamic graph systems:
-Paper: Bridging the Gap between Dynamic and Static Graph Processing (VLDB)
-Reference: https://www.vldb.org/pvldb/vol17/p4827-li.pdf
+## The structures
 
+All of them live in include/graphs and satisfy the same compile-time interface.
 
-## Prerequisites
+- NaiveGraph — a classic adjacency list (a hash map of vertex to a vector of
+  neighbours). Constant-time insertion, linear-in-degree lookup. It is the
+  readability and behaviour reference.
+- RawGraph — a single flat edge list. Cheap to append to and to scan in bulk,
+  but every point query is a linear scan of all edges, so it is used only as a
+  baseline.
+- CSRGraph — Compressed Sparse Row with an explicit finalize() step. Edges are
+  staged, then sorted and de-duplicated; after that, lookups are a binary
+  search.
+- StaticCSRGraph — an immutable CSR built once. The most compact and the fastest
+  for read-only work; any attempt to mutate it throws.
+- DynamicCSRGraph — a CSR that rebuilds itself on every insertion. Kept as a
+  cautionary baseline, because building it edge by edge is quadratic.
+- CBListGraph — a chunked adjacency list whose 64-byte-aligned chunks hold 14
+  edges each (exactly 192 bytes with double weights).
+- GCCGraph — the storage layer of GastCoCo: small per-vertex chunks that are
+  promoted to a per-vertex B+ tree, all threaded onto one Global Traversal
+  Chain.
 
-- Modern C++ compiler with C++20 / C++23 support (GCC 13+ or Clang 16+)
-- CMake (version 3.20 or newer)
-- Installed libraries: Google Test (GTest) and Google Benchmark
+Runtime-polymorphic (virtual) versions live in include/vgraphs and are used only
+to measure the cost of virtual dispatch against the CRTP approach.
 
+GCCGraph reimplements the storage layer of GastCoCo (arXiv 2312.14396, PVLDB
+17(13), 2024); the coroutine-based prefetch engine from that paper is out of
+scope here.
 
-## Building the Project
+## Requirements
 
-Navigate to the project root directory and run:
+- A C++20 compiler: GCC 13 or newer, or Clang 16 or newer.
+- CMake 3.20 or newer.
+- Internet access on the first configure. GoogleTest and Google Benchmark are
+  downloaded automatically by CMake, so nothing has to be installed by hand.
 
-    mkdir -p build
-    cd build
-    cmake -DCMAKE_BUILD_TYPE=Release ..
-    cmake --build . -j$(nproc)
+## Building
 
-Windows build (PowerShell/CMD):
-    mkdir build
-    cd build
-    cmake -DCMAKE_BUILD_TYPE=Release ..
-    cmake --build . --config Release
+    cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+    cmake --build build -j$(nproc)
 
+Always build in Release mode for benchmarking. A debug build has no
+optimizations and its numbers are meaningless.
 
-## Running Tests (Google Test)
+## Running the tests
 
-Execute all unit and parameterized integration tests using ctest inside the build directory:
+Run the whole suite through ctest:
 
-    ctest --output-on-failure
+    ctest --test-dir build --output-on-failure
 
-Or run individual test binaries directly:
+Or run the test binary directly, optionally with a filter:
 
-    ./test_naive
-    ./test_csr
-    ./test_cblist
-    ./test_all
+    ./build/tests/run_all_tests
+    ./build/tests/run_all_tests --gtest_filter=*Dijkstra*
 
-Run specific tests using GTest filters:
+## Running the benchmarks
 
-    ./test_all --gtest_filter="*Dijkstra*"
+Write the results to the file the notebook reads:
 
+    ./build/benchmarks/run_benchmarks --benchmark_out=results/results_advanced.json --benchmark_out_format=json
 
-## Running Benchmarks (Google Benchmark)
+A quicker pass, with a shorter timing budget per case:
 
-Run the full benchmark suite directly:
+    ./build/benchmarks/run_benchmarks --benchmark_min_time=0.05s --benchmark_out=results/results_advanced.json --benchmark_out_format=json
 
-    ./run_benchmarks
+Steadier numbers, by repeating and reporting aggregates:
 
-Filter specific benchmark suites:
+    ./build/benchmarks/run_benchmarks --benchmark_repetitions=5 --benchmark_report_aggregates_only=true --benchmark_out=results/results_advanced.json --benchmark_out_format=json
 
-    # Benchmark only initial edge insertions:
-    ./run_benchmarks --benchmark_filter="BM_EdgeInsertion"
+Only some families of benchmarks:
 
-    # Benchmark Breadth-First Search (BFS):
-    ./run_benchmarks --benchmark_filter=".*BFS.*"
+    ./build/benchmarks/run_benchmarks --benchmark_filter=Density
 
-    # Compare performance of direct vs. external storage for complex/heavy types:
-    ./run_benchmarks --benchmark_filter=".*BigClass.*"
+## Looking at the results
 
-    # Benchmark specific graph topologies (Sparse, Dense, R-MAT, 2D Grid):
-    ./run_benchmarks --benchmark_filter=".*Topology.*"
-    
-    # Compare template (static) vs. virtual (polymorphic) graph performance:
-    ./run_benchmarks --benchmark_filter=".*Polymorphism.*"
+The notebook results/benchmark_results.ipynb loads the results JSON and plots
+every family of benchmark: insertion, lookup, traversal, full scan, BFS,
+Dijkstra, the density sweep, the topologies, pointer-chasing latency, the memory
+footprint, and template-versus-virtual dispatch.
 
-Export benchmark results to JSON:
+Set up a small environment and open it:
 
-    ./run_benchmarks --benchmark_out=benchmark_results.json --benchmark_out_format=json
-    
+    python3 -m venv .venv
+    .venv/bin/pip install pandas matplotlib ipykernel
+
+Then open results/benchmark_results.ipynb, choose the .venv kernel, and run all
+cells. If you set RUN_BENCHMARKS to True in the second cell, the notebook runs
+the compiled binary itself before plotting.
+
+## Continuous integration
+
+The workflow in .github/workflows/tests.yml builds the project and runs the test
+suite with both GCC and Clang on every push and pull request.
+
+## Repository layout
+
+- include/graphs — the six storage structures plus the shared base class, the interface concept, and the graph generators.
+- include/vgraphs — the virtual variants used in the polymorphism benchmark, this is not the focus of the projct but just a comparsion.
+- tests — the GoogleTest suites, built into run_all_tests.
+- benchmarks — the Google Benchmark suite, built into run_benchmarks.
+- results — the results JSON and the analysis notebook.
+
+## License
+
+GNU General Public License v3. See the LICENSE file.

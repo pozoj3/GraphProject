@@ -4,6 +4,10 @@ add_executable(run_all_tests
     test_static.cpp
     test_virtual.cpp
     test_csr.cpp
+    test_gcc.cpp
+    test_generator.cpp
+    test_edge_cases.cpp
+    test_topology.cpp
 )
 
 target_include_directories(run_all_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../include)

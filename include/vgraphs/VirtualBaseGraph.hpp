@@ -23,7 +23,6 @@ public:
     explicit VirtualBaseGraph(bool directed = false) : isDirected(directed) {}
     virtual ~VirtualBaseGraph() = default;
 
-
     virtual void addVertex(const VertexType& u) = 0;
     virtual void addEdge(const VertexType& u, const VertexType& v, const WeightType& weight = 1) = 0;
     virtual void addEdgeDynamic(const VertexType& u, const VertexType& v, const WeightType& weight = 1) = 0;
@@ -117,4 +116,4 @@ public:
     }
 };
 
-#endif // VIRTUAL_BASE_GRAPH_HPP
+#endif

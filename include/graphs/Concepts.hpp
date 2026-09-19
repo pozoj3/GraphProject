@@ -1,6 +1,8 @@
 #ifndef CONCEPTS_HPP
 #define CONCEPTS_HPP
 
+// static_assert(GraphReq<...>), numeric constrains the weight type.
+
 #include <concepts>
 #include <cstddef>
 
@@ -22,4 +24,4 @@ concept GraphReq = Numeric<WeightType> && requires(T obj, const T cobj, const Ve
     { cobj.numEdges() } -> std::same_as<std::size_t>;
 };
 
-#endif // CONCEPTS_HPP
+#endif

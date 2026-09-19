@@ -1,6 +1,8 @@
 #ifndef BASE_GRAPH_HPP
 #define BASE_GRAPH_HPP
 
+// CRTP base providing bfs, dfs and dijkstra once for all structures
+
 #include <vector>
 #include <unordered_map>
 #include <unordered_set>
@@ -14,6 +16,7 @@
 template <typename DerivedGraph, typename VertexType, Numeric WeightType = double>
 class BaseGraph {
 private:
+
     const DerivedGraph& derived() const {
         return *static_cast<const DerivedGraph*>(this);
     }
@@ -107,4 +110,4 @@ public:
     }
 };
 
-#endif // BASE_GRAPH_HPP
+#endif

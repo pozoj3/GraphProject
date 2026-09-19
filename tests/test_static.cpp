@@ -6,7 +6,6 @@
 #include "graphs/RawGraph.hpp"
 
 TEST(StaticCSRGraphTest, ConstructionFromDynamicCSR) {
-    // Verifies that StaticCSRGraph is correctly constructed from a DynamicCSRGraph.
     DynamicCSRGraph<std::string, double> dynGraph(true);
     dynGraph.addEdge("A", "B", 1.5);
     dynGraph.addEdge("A", "C", 2.0);
@@ -19,7 +18,6 @@ TEST(StaticCSRGraphTest, ConstructionFromDynamicCSR) {
 }
 
 TEST(StaticCSRGraphTest, ConstructionFromRawGraph) {
-    // Verifies that StaticCSRGraph is correctly constructed from a RawGraph.
     RawGraph<std::string, double> rawGraph(true);
     rawGraph.addEdge("X", "Y", 5.0);
 
@@ -31,7 +29,7 @@ TEST(StaticCSRGraphTest, ConstructionFromRawGraph) {
 }
 
 TEST(StaticCSRGraphTest, ImmutabilityThrowsExceptions) {
-    // Verifies that any attempt to mutate StaticCSRGraph throws a std::logic_error.
+    // changign StaticCSRGraph throws a std::logic_error.
     RawGraph<std::string, double> rawGraph(true);
     StaticCSRGraph<std::string, double> staticGraph(std::move(rawGraph));
 

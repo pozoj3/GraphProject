@@ -7,6 +7,7 @@
 #include "graphs/CBListGraph.hpp"
 #include "graphs/DynamicCSRGraph.hpp"
 #include "graphs/RawGraph.hpp"
+#include "graphs/GCCGraph.hpp"
 
 template <typename T>
 class MutableGraphTest : public ::testing::Test {};
@@ -15,7 +16,8 @@ using MutableGraphImplementations = ::testing::Types<
     NaiveGraph<std::string, double>,
     CBListGraph<std::string, double>,
     DynamicCSRGraph<std::string, double>,
-    RawGraph<std::string, double>
+    RawGraph<std::string, double>,
+    GCCGraph<std::string, double>
 >;
 
 TYPED_TEST_SUITE(MutableGraphTest, MutableGraphImplementations);
@@ -95,7 +97,7 @@ TYPED_TEST(MutableGraphTest, BFSAndDFS) {
 }
 
 TYPED_TEST(MutableGraphTest, DijkstraShortestPath) {
-    // Verifies that Dijkstra's algorithm correctly finds the shortest paths.
+    //is Dijkstra correct
     TypeParam graph(true);
     graph.addEdge("A", "B", 4.0);
     graph.addEdge("A", "C", 1.0);
@@ -108,7 +110,7 @@ TYPED_TEST(MutableGraphTest, DijkstraShortestPath) {
 }
 
 TYPED_TEST(MutableGraphTest, DijkstraThrowsOnNegativeWeight) {
-    // Verifies that Dijkstra's algorithm throws std::invalid_argument when encountering negative weights.
+    // dijsktra cant have negative weights
     TypeParam graph(true);
     graph.addEdge("A", "B", -5.0);
 
@@ -116,7 +118,6 @@ TYPED_TEST(MutableGraphTest, DijkstraThrowsOnNegativeWeight) {
 }
 
 TYPED_TEST(MutableGraphTest, UndirectedGraphSymmetry) {
-    // Verifies that undirected graphs implicitly create reverse edges for symmetry.
     TypeParam graph(false);
     graph.addEdge("A", "B", 10.0);
 

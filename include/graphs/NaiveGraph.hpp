@@ -1,6 +1,8 @@
 #ifndef NAIVE_GRAPH_HPP
 #define NAIVE_GRAPH_HPP
 
+// Adjacency list: most basic, "control group"
+
 #include <vector>
 #include <unordered_map>
 #include <utility>
@@ -13,6 +15,7 @@
 template <typename VertexType, Numeric WeightType = double>
 class NaiveGraph : public BaseGraph<NaiveGraph<VertexType, WeightType>, VertexType, WeightType> {
 private:
+
     std::unordered_map<VertexType, std::vector<std::pair<VertexType, WeightType>>> adjList;
 
 public:
@@ -22,14 +25,13 @@ public:
 
     explicit NaiveGraph(RawGraph<VertexType, WeightType>&& raw)
         : NaiveGraph(true) {
-        if constexpr (requires { this->reserve(raw.numVertices(), raw.numEdges()); }) {
-            this->reserve(raw.numVertices(), raw.numEdges());
+
+        for (const VertexType& vertex : raw.getReverseIdMap()) {
+            this->addVertex(vertex);
         }
-        for (uint32_t u = 0; u < raw.numVertices(); ++u) {
-            raw.forEachNeighbor(u, [&](const VertexType& v, WeightType w) {
-                this->addEdge(u, v, w);
-            });
-        }
+        raw.traverseEntireGraph([&](const VertexType& u, const VertexType& v, const WeightType& w) {
+            this->addEdge(u, v, w);
+        });
     }
 
     void addVertex(const VertexType& u) {
@@ -43,7 +45,8 @@ public:
         addVertex(v);
 
         adjList[u].emplace_back(v, weight);
-        if (!this->isDirected) {
+
+        if (!this->isDirected && !(u == v)) {
             adjList[v].emplace_back(u, weight);
         }
     }
@@ -79,8 +82,8 @@ public:
         return (it != adjList.end()) ? it->second.size() : 0;
     }
 
-    std::size_t numVertices() const { 
-        return adjList.size(); 
+    std::size_t numVertices() const {
+        return adjList.size();
     }
 
     std::size_t numEdges() const {
@@ -108,6 +111,14 @@ public:
             }
         }
     }
+
+    std::size_t memoryUsageBytes() const {
+        std::size_t bytes = 0;
+        for (const auto& [u, neighbors] : adjList) {
+            bytes += neighbors.capacity() * sizeof(std::pair<VertexType, WeightType>);
+        }
+        return bytes;
+    }
 };
 
 template <typename VertexType, Numeric WeightType = double>
@@ -115,4 +126,4 @@ using Graph = NaiveGraph<VertexType, WeightType>;
 
 static_assert(GraphReq<NaiveGraph<int, double>, int, double>);
 
-#endif // NAIVE_GRAPH_HPP
+#endif

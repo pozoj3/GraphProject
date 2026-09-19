@@ -1,6 +1,8 @@
 #ifndef RAW_GRAPH_HPP
 #define RAW_GRAPH_HPP
 
+// Flat edge list, udes for constructing other graph.
+
 #include <vector>
 #include <unordered_map>
 #include <cstdint>
@@ -12,6 +14,7 @@
 template <typename VertexType, Numeric WeightType = double>
 class RawGraph : public BaseGraph<RawGraph<VertexType, WeightType>, VertexType, WeightType> {
 public:
+
     struct RawEdge {
         uint32_t src;
         uint32_t dst;
@@ -139,8 +142,12 @@ public:
     const std::unordered_map<VertexType, uint32_t>& getIdMap() const { return idMap; }
     const std::vector<VertexType>& getReverseIdMap() const { return reverseIdMap; }
     const std::vector<RawEdge>& getEdgeList() const { return edgeList; }
+
+    std::size_t memoryUsageBytes() const {
+        return edgeList.capacity() * sizeof(RawEdge);
+    }
 };
 
 static_assert(GraphReq<RawGraph<int, double>, int, double>);
 
-#endif // RAW_GRAPH_HPP
+#endif

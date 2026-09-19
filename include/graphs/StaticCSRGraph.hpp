@@ -1,6 +1,8 @@
 #ifndef STATIC_CSR_GRAPH_HPP
 #define STATIC_CSR_GRAPH_HPP
 
+// Immutable CSR built once from a RawGraph/DynamicCSRGraph, throws error if mutated
+
 #include <vector>
 #include <unordered_map>
 #include <algorithm>
@@ -99,29 +101,21 @@ public:
     explicit StaticCSRGraph(RawGraph<VertexType, WeightType>&& raw)
         : Base(true) {
         std::size_t vCount = raw.numVertices();
-        std::size_t eCount = raw.numEdges();
 
         idMap.reserve(vCount);
         reverseIdMap.reserve(vCount);
 
-        std::vector<InternalEdge> edges;
-        edges.reserve(eCount);
-
-        for (uint32_t u = 0; u < vCount; ++u) {
-            VertexType vertex = static_cast<VertexType>(u);
-            idMap[vertex] = u;
+        for (const VertexType& vertex : raw.getReverseIdMap()) {
+            uint32_t id = static_cast<uint32_t>(reverseIdMap.size());
+            idMap[vertex] = id;
             reverseIdMap.push_back(vertex);
         }
 
-        for (uint32_t u = 0; u < vCount; ++u) {
-            raw.forEachNeighbor(static_cast<VertexType>(u), [&](const VertexType& v, WeightType w) {
-                auto itU = idMap.find(static_cast<VertexType>(u));
-                auto itV = idMap.find(v);
-                if (itU != idMap.end() && itV != idMap.end()) {
-                    edges.push_back({itU->second, itV->second, w});
-                }
-            });
-        }
+        std::vector<InternalEdge> edges;
+        edges.reserve(raw.getEdgeList().size());
+        raw.traverseEntireGraph([&](const VertexType& u, const VertexType& v, const WeightType& w) {
+            edges.push_back({idMap.at(u), idMap.at(v), w});
+        });
 
         buildFromEdgeList(edges);
     }
@@ -225,8 +219,14 @@ public:
     std::size_t numEdges() const {
         return this->isDirected ? columnIndices.size() : columnIndices.size() / 2;
     }
+
+    std::size_t memoryUsageBytes() const {
+        return offsets.capacity() * sizeof(uint64_t)
+             + columnIndices.capacity() * sizeof(uint32_t)
+             + values.capacity() * sizeof(WeightType);
+    }
 };
 
 static_assert(GraphReq<StaticCSRGraph<int, double>, int, double>);
 
-#endif // STATIC_CSR_GRAPH_HPP
+#endif

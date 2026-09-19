@@ -3,8 +3,9 @@
 
 #include "graphs/CSRGraph.hpp"
 
+///is finalize good (outdated)
+
 TEST(CSRGraphTest, RequiresFinalizeBeforeLookup) {
-    // Verifies that lookup operations in standard CSRGraph fail before finalize() is called.
     CSRGraph<std::string, double> graph(true);
     graph.reserve(3, 2);
     graph.addEdge("A", "B", 1.5);
@@ -20,7 +21,6 @@ TEST(CSRGraphTest, RequiresFinalizeBeforeLookup) {
 }
 
 TEST(CSRGraphTest, NeighborIterationAndSinkVertex) {
-    // Verifies that finalize() properly constructs the CSR structures for correct neighbor iteration.
     CSRGraph<int, double> graph(true);
     graph.addEdge(0, 1, 4.0);
     graph.addEdge(0, 2, 2.0);

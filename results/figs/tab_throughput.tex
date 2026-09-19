@@ -1,0 +1,13 @@
+\begin{tabular}{lrrrrrr}
+\toprule
+Structure & Insert & Lookup & Neigh. & Scan & BFS & Dijkstra \\
+ & (M e/s) & (M/s) & (M/s) & (M/s) & (M v/s) & (M v/s) \\
+\midrule
+StaticCSR & -- & 12.57 & 183 & 656 & 3.19 & 1.79 \\
+DynamicCSR & $<$0.01 & 12.40 & 174 & 656 & 3.14 & 1.79 \\
+CBList & 5.40 & 12.38 & 134 & 348 & 2.82 & 1.57 \\
+GCC (GastCoCo) & 2.76 & 6.73 & 42.14 & 36.57 & 1.76 & 1.12 \\
+Naive & 4.44 & 12.60 & 213 & 247 & 3.09 & 1.78 \\
+Raw$^\dagger$ & 21.97 & 0.18 & 0.78 & 842 & 0.10 & 0.11 \\
+\bottomrule
+\end{tabular}

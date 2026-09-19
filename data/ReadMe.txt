@@ -1,0 +1,1 @@
+In this folder there are some tests that show how cache memory behaves. They are not important for the project overall, but you can look at the results.

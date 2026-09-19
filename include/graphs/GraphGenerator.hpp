@@ -17,7 +17,7 @@ struct RawEdge {
     WeightType weight;
 };
 
-// Generates a random graph using the Erdős-Rényi model with uniform distribution (allows duplicate edges).
+//standard erdos renyi mettod
 template <typename WeightType = double>
 inline std::vector<RawEdge<WeightType>> generateErdosRenyi(
     uint32_t num_vertices, uint64_t num_edges, uint32_t seed = 42,
@@ -40,7 +40,7 @@ inline std::vector<RawEdge<WeightType>> generateErdosRenyi(
     return edges;
 }
 
-// Generates a random graph without duplicate edges (strict) and assigns weights using a Gaussian (normal) distribution.
+//same as above but no duplicates and self loops
 template <typename WeightType = double>
 inline std::vector<RawEdge<WeightType>> generateErdosRenyiStrictGaussian(
     uint32_t num_vertices, uint64_t num_edges, uint32_t seed = 42,
@@ -61,17 +61,17 @@ inline std::vector<RawEdge<WeightType>> generateErdosRenyiStrictGaussian(
     while (edges.size() < num_edges) {
         uint32_t u = vertex_dist(rng);
         uint32_t v = vertex_dist(rng);
-        
-        if (u == v) continue; 
-        if (seen.insert({u, v}).second) { 
-            double w = std::max(1.0, weight_dist(rng)); 
+
+        if (u == v) continue;
+        if (seen.insert({u, v}).second) {
+            double w = std::max(1.0, weight_dist(rng));
             edges.push_back({u, v, static_cast<WeightType>(w)});
         }
     }
     return edges;
 }
 
-// Generates a scale-free graph using the R-MAT model, ideal for simulating social networks where a few vertices have many connections.
+//generates r-mat, few vertexes have a lot of edges
 template <typename WeightType = double>
 inline std::vector<RawEdge<WeightType>> generateRMAT(
     uint32_t num_vertices, uint64_t num_edges, double a = 0.57, double b = 0.19, double c = 0.19,
@@ -84,8 +84,8 @@ inline std::vector<RawEdge<WeightType>> generateRMAT(
     std::vector<RawEdge<WeightType>> edges;
     edges.reserve(num_edges);
     uint32_t scale = static_cast<uint32_t>(std::ceil(std::log2(num_vertices)));
-    
-    uint32_t mask = (1 << scale) - 1; 
+
+    uint32_t mask = (1 << scale) - 1;
 
     for (uint64_t e = 0; e < num_edges; ++e) {
         uint32_t u = 0, v = 0;
@@ -98,7 +98,7 @@ inline std::vector<RawEdge<WeightType>> generateRMAT(
                 else { u += bit_val; v += bit_val; }
             }
         }
-        
+
         u = u & mask; v = v & mask;
         if (u >= num_vertices) u %= num_vertices;
         if (v >= num_vertices) v %= num_vertices;
@@ -109,7 +109,7 @@ inline std::vector<RawEdge<WeightType>> generateRMAT(
     return edges;
 }
 
-// Generates a 2D grid (mesh) graph where each vertex is connected to its immediate up, down, left, and right neighbors.
+// generates manhatthen grid, to test dijkstra
 template <typename WeightType = double>
 inline std::vector<RawEdge<WeightType>> generateGrid2D(
     uint32_t width, uint32_t height, uint32_t seed = 42,
@@ -117,9 +117,9 @@ inline std::vector<RawEdge<WeightType>> generateGrid2D(
 ) {
     std::mt19937_64 rng(seed);
     std::uniform_real_distribution<double> weight_dist(static_cast<double>(min_weight), static_cast<double>(max_weight));
-    
+
     std::vector<RawEdge<WeightType>> edges;
-    edges.reserve((width * height) * 4); 
+    edges.reserve((width * height) * 4);
 
     for (uint32_t y = 0; y < height; ++y) {
         for (uint32_t x = 0; x < width; ++x) {
@@ -127,19 +127,19 @@ inline std::vector<RawEdge<WeightType>> generateGrid2D(
             if (x < width - 1) {
                 uint32_t v = y * width + (x + 1);
                 edges.push_back({u, v, static_cast<WeightType>(weight_dist(rng))});
-                edges.push_back({v, u, static_cast<WeightType>(weight_dist(rng))}); 
+                edges.push_back({v, u, static_cast<WeightType>(weight_dist(rng))});
             }
             if (y < height - 1) {
                 uint32_t v = (y + 1) * width + x;
                 edges.push_back({u, v, static_cast<WeightType>(weight_dist(rng))});
-                edges.push_back({v, u, static_cast<WeightType>(weight_dist(rng))}); 
+                edges.push_back({v, u, static_cast<WeightType>(weight_dist(rng))});
             }
         }
     }
     return edges;
 }
 
-// Generates a single, closed cyclic chain of all vertices in a randomized order to test memory access latency (cache misses).
+//whole graph is in a single cycle
 template <typename WeightType = double>
 inline std::vector<RawEdge<WeightType>> generatePointerChasingChain(
     uint32_t num_vertices, uint32_t seed = 42
@@ -161,5 +161,5 @@ inline std::vector<RawEdge<WeightType>> generatePointerChasingChain(
     return edges;
 }
 
-} // namespace GraphGenerator
-#endif // GRAPH_GENERATOR_HPP
+}
+#endif

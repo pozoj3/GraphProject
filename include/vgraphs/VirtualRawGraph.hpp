@@ -140,4 +140,4 @@ public:
     const std::vector<RawEdge>& getEdgeList() const { return edgeList; }
 };
 
-#endif // VIRTUAL_RAW_GRAPH_HPP
+#endif

@@ -187,4 +187,4 @@ public:
     }
 };
 
-#endif // VIRTUAL_CSR_GRAPH_HPP
+#endif

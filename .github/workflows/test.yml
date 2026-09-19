@@ -1,26 +1,52 @@
-name: Graph Unit Test
+name: Tests
 
 on:
   push:
-    branches: [ "main", "master" ]
   pull_request:
-    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build-and-test:
+  gtest:
+    name: Build & run GoogleTest (${{ matrix.compiler }})
     runs-on: ubuntu-latest
 
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - compiler: g++
+            cc: gcc
+          - compiler: clang++
+            cc: clang
+
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.compiler }}
+
     steps:
-      - name: Preuzimanje koda (Checkout)
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Instalacija Google Test biblioteke
+      - name: Install build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtest-dev
+          sudo apt-get install -y cmake g++ clang
 
-      - name: Kompajliranje testova
-        run: g++ -std=c++23 GTest.cpp -lgtest -lgtest_main -pthread -o GTest
+      - name: Cache FetchContent dependencies
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: deps-${{ runner.os }}-${{ matrix.compiler }}-${{ hashFiles('CMakeLists.txt') }}
 
-      - name: Pokretanje testova
-        run: ./GTest
+      - name: Configure (CMake, Release)
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build tests
+        run: cmake --build build --target run_all_tests -j"$(nproc)"
+
+      - name: Run tests (ctest)
+        run: ctest --test-dir build --output-on-failure

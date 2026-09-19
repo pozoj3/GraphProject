@@ -6,7 +6,7 @@
 #include "vgraphs/VirtualCSRGraph.hpp"
 
 TEST(VirtualGraphTest, PolymorphicBehaviorRaw) {
-    // Verifies that VirtualRawGraph can be manipulated and queried through a polymorphic base pointer.
+    // VirtualRawGraph can be used polymorphic base pointer
     std::unique_ptr<VirtualBaseGraph<std::string, double>> graph = 
         std::make_unique<VirtualRawGraph<std::string, double>>(true);
 
@@ -24,7 +24,7 @@ TEST(VirtualGraphTest, PolymorphicBehaviorRaw) {
 }
 
 TEST(VirtualGraphTest, PolymorphicBehaviorCSR) {
-    // Verifies that VirtualCSRGraph is correctly built from VirtualRawGraph and behaves polymorphically.
+    // verifies that VirtualCSRGraph is correctly built from VirtualRawGraph
     VirtualRawGraph<std::string, double> raw(true);
     raw.addEdge("A", "B", 10.0);
     raw.addEdge("A", "C", 20.0);
